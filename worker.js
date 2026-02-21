@@ -172,7 +172,11 @@ function renderLogin(redirect = '/', statusMsg = '', showReg = false, isSuccess 
 </head>
 <body>
   <div class="card">
-    <h2>🔐 ${showReg ? 'Create Account' : 'Welcome back'}</h2>
+    <a href="/" style="display:flex;align-items:center;gap:8px;text-decoration:none;justify-content:center;margin-bottom:24px">
+      <span style="width:32px;height:32px;background:linear-gradient(135deg,#6366f1,#f43f5e);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85em;color:#fff">111</span>
+      <span style="font-weight:700;font-size:1.1em;color:var(--txt-main)">iridescence</span>
+    </a>
+    <h2>${showReg ? 'Create Account' : 'Welcome back'}</h2>
     <p class="subtitle">${showReg ? 'Join 111iridescence' : 'Sign in to continue'}</p>
 
     ${statusMsg ? `<div class="msg ${isSuccess ? 'ok' : 'err'}">${statusMsg}</div>` : ''}
