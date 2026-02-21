@@ -137,25 +137,27 @@ async function hash(str) {
 }
 
 const CSS = `
-:root{--bg:#121212;--card:#1e1e1e;--txt:#e0e0e0;--p:#bb86fc;--s:#03dac6;--err:#cf6679;--good:#4caf50}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+:root{--bg:#0f1117;--card:#161b22;--txt-main:#f8fafc;--txt-muted:#94a3b8;--p:#6366f1;--p-hover:#4f46e5;--s:#0ea5e9;--err:#f43f5e;--good:#10b981;--border:rgba(255,255,255,0.08);--ring:rgba(99,102,241,0.5)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:var(--card);padding:30px;border-radius:12px;border:1px solid #2a2a2a;width:100%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
-h2{text-align:center;margin-bottom:6px;font-size:1.4em}
-.subtitle{text-align:center;color:#777;font-size:0.85em;margin-bottom:24px}
-label{display:block;font-size:0.82em;color:#aaa;margin-bottom:4px;margin-top:14px}
-input{background:#2a2a2a;border:1px solid #3a3a3a;color:#fff;padding:10px 12px;border-radius:6px;width:100%;font-size:0.95em;transition:border-color 0.2s}
-input:focus{outline:none;border-color:var(--p)}
-.btn{cursor:pointer;border:none;padding:11px;border-radius:6px;width:100%;font-weight:700;font-size:0.95em;transition:opacity 0.15s;margin-top:16px}
-.btn-primary{background:var(--p);color:#000}
-.btn-secondary{background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;margin-top:10px}
-.btn:hover{opacity:0.85}
-.msg{text-align:center;font-size:0.85em;padding:8px;border-radius:6px;margin-top:14px}
-.msg.err{color:var(--err);background:rgba(207,102,121,0.1)}
-.msg.ok{color:var(--good);background:rgba(76,175,80,0.1)}
-.divider{text-align:center;color:#444;font-size:0.8em;margin:18px 0;position:relative}
-.divider::before,.divider::after{content:'';position:absolute;top:50%;width:42%;height:1px;background:#2a2a2a}
-.divider::before{left:0}.divider::after{right:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--txt-main);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;line-height:1.5}
+.card{background:var(--card);padding:40px 32px;border-radius:24px;border:1px solid var(--border);width:100%;max-width:380px;box-shadow:0 24px 48px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.02) inset}
+h2{text-align:center;margin-bottom:8px;font-size:1.6em;font-weight:700;letter-spacing:-0.02em}
+.subtitle{text-align:center;color:var(--txt-muted);font-size:0.95em;margin-bottom:32px}
+label{display:block;font-size:0.85em;color:var(--txt-muted);margin-bottom:6px;margin-top:16px;font-weight:500}
+input{background:rgba(0,0,0,0.2);border:1px solid var(--border);color:var(--txt-main);padding:12px 16px;border-radius:12px;width:100%;font-size:1em;transition:all 0.2s;font-family:inherit}
+input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px var(--ring)}
+.btn{cursor:pointer;border:none;padding:12px;border-radius:12px;width:100%;font-weight:600;font-size:1em;transition:all 0.2s;margin-top:24px;font-family:inherit;display:inline-flex;align-items:center;justify-content:center}
+.btn-primary{background:var(--p);color:#fff;box-shadow:0 4px 12px rgba(99,102,241,0.2)}
+.btn-primary:hover{background:var(--p-hover);transform:translateY(-1px);box-shadow:0 6px 16px rgba(99,102,241,0.3)}
+.btn-secondary{background:rgba(255,255,255,0.05);color:var(--txt-muted);border:1px solid var(--border);margin-top:12px;box-shadow:none}
+.btn-secondary:hover{background:rgba(255,255,255,0.1);color:var(--txt-main)}
+.msg{text-align:center;font-size:0.9em;padding:10px;border-radius:8px;margin-top:16px;font-weight:500}
+.msg.err{color:var(--err);background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.2)}
+.msg.ok{color:var(--good);background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2)}
+.divider{text-align:center;color:var(--txt-muted);font-size:0.85em;margin:24px 0;position:relative;display:flex;align-items:center}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.divider::before{margin-right:12px}.divider::after{margin-left:12px}
 `;
 
 function renderLogin(redirect = '/', statusMsg = '', showReg = false, isSuccess = false) {
@@ -195,7 +197,7 @@ function renderLogin(redirect = '/', statusMsg = '', showReg = false, isSuccess 
         <input type="text" name="u" placeholder="choose a username" required autocomplete="username" minlength="3">
         <label>Password</label>
         <input type="password" name="p" placeholder="••••••••" required autocomplete="new-password" minlength="6">
-        <button type="submit" class="btn btn-primary" style="background:var(--s);color:#000">Create Account</button>
+        <button type="submit" class="btn btn-primary" style="background:var(--s);color:#fff">Create Account</button>
       </form>
       <div class="divider">or</div>
       <button class="btn btn-secondary" onclick="toggle()">Already have an account?</button>
