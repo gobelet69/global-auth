@@ -115,6 +115,43 @@ export default {
             });
         }
 
+        // GET /account — render account preferences page (requires auth)
+        if (path === '/account') {
+            const cookie = req.headers.get('Cookie') || '';
+            const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
+            if (!sessId) return new Response(null, { status: 302, headers: { 'Location': '/auth/login?redirect=/auth/account' } });
+            const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first();
+            if (!sess) return new Response(null, { status: 302, headers: { 'Location': '/auth/login?redirect=/auth/account' } });
+            const msg = url.searchParams.get('msg') || '';
+            const isErr = url.searchParams.get('err') === '1';
+            return new Response(renderAccount(sess.username, msg, isErr), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+
+        // POST /account/password — change password (requires auth)
+        if (path === '/account/password' && req.method === 'POST') {
+            const cookie = req.headers.get('Cookie') || '';
+            const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
+            if (!sessId) return new Response(null, { status: 302, headers: { 'Location': '/auth/login' } });
+            const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first();
+            if (!sess) return new Response(null, { status: 302, headers: { 'Location': '/auth/login' } });
+            const fd = await req.formData();
+            const currentPw = fd.get('current');
+            const newPw = fd.get('new');
+            const confirm = fd.get('confirm');
+            if (newPw !== confirm) {
+                return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Passwords+do+not+match' } });
+            }
+            if (!newPw || newPw.length < 6) {
+                return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Password+must+be+at+least+6+characters' } });
+            }
+            const user = await env.AUTH_DB.prepare('SELECT * FROM users WHERE username = ? AND password = ?').bind(sess.username, await hash(currentPw)).first();
+            if (!user) {
+                return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Current+password+is+incorrect' } });
+            }
+            await env.AUTH_DB.prepare('UPDATE users SET password = ? WHERE username = ?').bind(await hash(newPw), sess.username).run();
+            return new Response(null, { status: 302, headers: { 'Location': '/auth/account?msg=Password+updated+successfully' } });
+        }
+
         // GET /login — render login page
         if (path === '/login' || path === '/') {
             const redirect = url.searchParams.get('redirect') || '/';
@@ -218,6 +255,68 @@ function renderLogin(redirect = '/', statusMsg = '', showReg = false, isSuccess 
       document.title = (showing ? 'Create Account' : 'Sign In') + ' — 111iridescence';
     }
   </script>
+</body>
+</html>`;
+}
+
+function renderAccount(username, msg = '', isErr = false) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Account Preferences — 111iridescence</title>
+  <style>${CSS}
+    .account-header{display:flex;justify-content:space-between;align-items:center;max-width:420px;width:100%;margin-bottom:32px}
+    .back-link{color:var(--txt-muted);font-size:0.9em;display:inline-flex;align-items:center;gap:6px;transition:color 0.2s}
+    .back-link:hover{color:var(--txt-main)}
+    body{align-items:flex-start;padding:48px 20px}
+    .page-wrap{width:100%;max-width:420px;margin:0 auto}
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="account-header">
+      <a href="/" style="text-decoration:none;display:flex;align-items:center;gap:8px">
+        <span style="width:32px;height:32px;background:linear-gradient(135deg,#6366f1,#f43f5e);border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85em;color:#fff;box-shadow:0 0 14px rgba(99,102,241,0.5)">111</span>
+        <span style="font-weight:700;font-size:1.05em;color:#fff">111<span style="color:#6366f1">iridescence</span></span>
+      </a>
+      <a href="javascript:history.back()" class="back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </a>
+    </div>
+
+    <div class="card" style="max-width:420px">
+      <div style="text-align:center;margin-bottom:32px">
+        <div style="width:56px;height:56px;background:linear-gradient(135deg,#6366f1,#f43f5e);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.4em;margin:0 auto 16px;box-shadow:0 0 24px rgba(99,102,241,0.4)">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>
+        </div>
+        <h2 style="font-size:1.35em;margin-bottom:4px">Account Preferences</h2>
+        <p class="subtitle" style="margin-bottom:0">Signed in as <strong style="color:var(--txt-main)">${username}</strong></p>
+      </div>
+
+      ${msg ? `<div class="msg ${isErr ? 'err' : 'ok'}" style="margin-bottom:24px">${msg}</div>` : ''}
+
+      <h3 style="font-size:1em;font-weight:600;color:var(--txt-muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:16px">Change Password</h3>
+      <form method="POST" action="/auth/account/password">
+        <label>Current Password</label>
+        <input type="password" name="current" placeholder="••••••••" required autocomplete="current-password">
+        <label>New Password</label>
+        <input type="password" name="new" placeholder="Min 6 characters" required autocomplete="new-password">
+        <label>Confirm New Password</label>
+        <input type="password" name="confirm" placeholder="••••••••" required autocomplete="new-password">
+        <button class="btn btn-primary" type="submit">Update Password</button>
+      </form>
+
+      <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border);text-align:center">
+        <a href="/auth/logout" style="color:var(--err);font-size:0.9em;font-weight:500;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.15);text-decoration:none;transition:background 0.2s" onmouseover="this.style.background='rgba(244,63,94,0.15)'" onmouseout="this.style.background='rgba(244,63,94,0.08)'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign Out of All Sessions
+        </a>
+      </div>
+    </div>
+  </div>
 </body>
 </html>`;
 }
