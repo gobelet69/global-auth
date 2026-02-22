@@ -14,163 +14,160 @@ const SESSION_TTL_MS = 2592000000; // 30 days in milliseconds
 const COOKIE_MAX_AGE = 2592000;    // 30 days in seconds
 
 export default {
-    async fetch(req, env) {
-        const url = new URL(req.url);
-        let path = url.pathname;
+  async fetch(req, env) {
+    const url = new URL(req.url);
+    let path = url.pathname;
 
-        // Normalize: strip /auth prefix
-        if (path.startsWith('/auth')) {
-            path = path.substring(5) || '/';
-        }
-
-        // POST /login — authenticate user
-        if (path === '/login' && req.method === 'POST') {
-            const fd = await req.formData();
-            const username = fd.get('u');
-            const password = fd.get('p');
-            const redirect = fd.get('redirect') || '/';
-
-            const dbUser = await env.AUTH_DB
-                .prepare('SELECT * FROM users WHERE username = ? AND password = ?')
-                .bind(username, await hash(password))
-                .first();
-
-            if (!dbUser) {
-                // Re-render login page with error
-                return new Response(renderLogin(redirect, 'Invalid username or password.'), {
-                    status: 401,
-                    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-                });
-            }
-
-            const sessId = crypto.randomUUID();
-            await env.AUTH_DB
-                .prepare('INSERT INTO sessions (id, username, role, expires) VALUES (?, ?, ?, ?)')
-                .bind(sessId, dbUser.username, dbUser.role, Date.now() + SESSION_TTL_MS)
-                .run();
-
-            return new Response(null, {
-                status: 302,
-                headers: {
-                    'Location': redirect || '/',
-                    'Set-Cookie': `sess=${sessId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}`
-                }
-            });
-        }
-
-        // POST /register — create new account
-        if (path === '/register' && req.method === 'POST') {
-            const fd = await req.formData();
-            const username = fd.get('u');
-            const password = fd.get('p');
-            const redirect = fd.get('redirect') || '/';
-
-            if (!username || username.length < 3) {
-                return new Response(renderLogin(redirect, 'Username must be at least 3 characters.', true), {
-                    status: 400,
-                    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-                });
-            }
-
-            const existing = await env.AUTH_DB
-                .prepare('SELECT username FROM users WHERE username = ?')
-                .bind(username)
-                .first();
-
-            if (existing) {
-                return new Response(renderLogin(redirect, 'Username already taken.', true), {
-                    status: 400,
-                    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-                });
-            }
-
-            await env.AUTH_DB
-                .prepare('INSERT INTO users (username, password, role, created_at) VALUES (?, ?, ?, ?)')
-                .bind(username, await hash(password), 'user', Date.now())
-                .run();
-
-            // Redirect to login with success message
-            const loginUrl = `/auth/login?redirect=${encodeURIComponent(redirect)}&registered=1`;
-            return new Response(null, { status: 302, headers: { 'Location': loginUrl } });
-        }
-
-        // GET /logout — clear session
-        if (path === '/logout') {
-            const cookie = req.headers.get('Cookie');
-            const sessId = cookie
-                ? cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1]
-                : null;
-
-            if (sessId) {
-                await env.AUTH_DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessId).run();
-            }
-
-            // Redirect to home (the hub page)
-            return new Response(null, {
-                status: 302,
-                headers: {
-                    'Location': '/',
-                    'Set-Cookie': 'sess=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0'
-                }
-            });
-        }
-
-        // GET /account — render account preferences page (requires auth)
-        if (path === '/account') {
-            const cookie = req.headers.get('Cookie') || '';
-            const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
-            if (!sessId) return new Response(null, { status: 302, headers: { 'Location': '/auth/login?redirect=/auth/account' } });
-            const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first();
-            if (!sess) return new Response(null, { status: 302, headers: { 'Location': '/auth/login?redirect=/auth/account' } });
-            const msg = url.searchParams.get('msg') || '';
-            const isErr = url.searchParams.get('err') === '1';
-            return new Response(renderAccount(sess.username, msg, isErr), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-        }
-
-        // POST /account/password — change password (requires auth)
-        if (path === '/account/password' && req.method === 'POST') {
-            const cookie = req.headers.get('Cookie') || '';
-            const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
-            if (!sessId) return new Response(null, { status: 302, headers: { 'Location': '/auth/login' } });
-            const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first();
-            if (!sess) return new Response(null, { status: 302, headers: { 'Location': '/auth/login' } });
-            const fd = await req.formData();
-            const currentPw = fd.get('current');
-            const newPw = fd.get('new');
-            const confirm = fd.get('confirm');
-            if (newPw !== confirm) {
-                return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Passwords+do+not+match' } });
-            }
-            if (!newPw || newPw.length < 6) {
-                return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Password+must+be+at+least+6+characters' } });
-            }
-            const user = await env.AUTH_DB.prepare('SELECT * FROM users WHERE username = ? AND password = ?').bind(sess.username, await hash(currentPw)).first();
-            if (!user) {
-                return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Current+password+is+incorrect' } });
-            }
-            await env.AUTH_DB.prepare('UPDATE users SET password = ? WHERE username = ?').bind(await hash(newPw), sess.username).run();
-            return new Response(null, { status: 302, headers: { 'Location': '/auth/account?msg=Password+updated+successfully' } });
-        }
-
-        // GET /login — render login page
-        if (path === '/login' || path === '/') {
-            const redirect = url.searchParams.get('redirect') || '/';
-            const registered = url.searchParams.get('registered') === '1';
-            const msg = registered ? 'Account created! You can now log in.' : '';
-            return new Response(renderLogin(redirect, msg, false, registered), {
-                headers: { 'Content-Type': 'text/html; charset=utf-8' }
-            });
-        }
-
-        return new Response('Not found', { status: 404 });
+    // Normalize: strip /auth prefix
+    if (path.startsWith('/auth')) {
+      path = path.substring(5) || '/';
     }
+
+    // POST /login — authenticate user
+    if (path === '/login' && req.method === 'POST') {
+      const fd = await req.formData();
+      const username = fd.get('u');
+      const password = fd.get('p');
+      const redirect = fd.get('redirect') || '/';
+
+      const dbUser = await env.AUTH_DB
+        .prepare('SELECT * FROM users WHERE username = ? AND password = ?')
+        .bind(username, await hash(password))
+        .first();
+
+      if (!dbUser) {
+        // Re-render login page with error
+        return new Response(renderLogin(redirect, 'Invalid username or password.'), {
+          status: 401,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+
+      const sessId = crypto.randomUUID();
+      await env.AUTH_DB
+        .prepare('INSERT INTO sessions (id, username, role, expires) VALUES (?, ?, ?, ?)')
+        .bind(sessId, dbUser.username, dbUser.role, Date.now() + SESSION_TTL_MS)
+        .run();
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': redirect || '/',
+          'Set-Cookie': `sess=${sessId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}`
+        }
+      });
+    }
+
+    // POST /register — create new account
+    if (path === '/register' && req.method === 'POST') {
+      const fd = await req.formData();
+      const username = fd.get('u');
+      const password = fd.get('p');
+      const redirect = fd.get('redirect') || '/';
+
+      if (!username || username.length < 3) {
+        return new Response(renderLogin(redirect, 'Username must be at least 3 characters.', true), {
+          status: 400,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+
+      const existing = await env.AUTH_DB
+        .prepare('SELECT username FROM users WHERE username = ?')
+        .bind(username)
+        .first();
+
+      if (existing) {
+        return new Response(renderLogin(redirect, 'Username already taken.', true), {
+          status: 400,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+
+      await env.AUTH_DB.prepare('INSERT OR REPLACE INTO users (username, password, role, created_at) VALUES (?, ?, ?, ?)').bind(username, await hash(password), fd.get('r') || 'viewer', new Date().toISOString()).run();
+
+      // Redirect to login with success message
+      const loginUrl = `/auth/login?redirect=${encodeURIComponent(redirect)}&registered=1`;
+      return new Response(null, { status: 302, headers: { 'Location': loginUrl } });
+    }
+
+    // GET /logout — clear session
+    if (path === '/logout') {
+      const cookie = req.headers.get('Cookie');
+      const sessId = cookie
+        ? cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1]
+        : null;
+
+      if (sessId) {
+        await env.AUTH_DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessId).run();
+      }
+
+      // Redirect to home (the hub page)
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': '/',
+          'Set-Cookie': 'sess=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0'
+        }
+      });
+    }
+
+    // GET /account — render account preferences page (requires auth)
+    if (path === '/account') {
+      const cookie = req.headers.get('Cookie') || '';
+      const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
+      if (!sessId) return new Response(null, { status: 302, headers: { 'Location': '/auth/login?redirect=/auth/account' } });
+      const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first();
+      if (!sess) return new Response(null, { status: 302, headers: { 'Location': '/auth/login?redirect=/auth/account' } });
+      const msg = url.searchParams.get('msg') || '';
+      const isErr = url.searchParams.get('err') === '1';
+      return new Response(renderAccount(sess.username, msg, isErr), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    // POST /account/password — change password (requires auth)
+    if (path === '/account/password' && req.method === 'POST') {
+      const cookie = req.headers.get('Cookie') || '';
+      const sessId = cookie.split(';').find(c => c.trim().startsWith('sess='))?.split('=')[1];
+      if (!sessId) return new Response(null, { status: 302, headers: { 'Location': '/auth/login' } });
+      const sess = await env.AUTH_DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires > ?').bind(sessId, Date.now()).first();
+      if (!sess) return new Response(null, { status: 302, headers: { 'Location': '/auth/login' } });
+      const fd = await req.formData();
+      const currentPw = fd.get('current');
+      const newPw = fd.get('new');
+      const confirm = fd.get('confirm');
+      if (newPw !== confirm) {
+        return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Passwords+do+not+match' } });
+      }
+      if (!newPw || newPw.length < 6) {
+        return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Password+must+be+at+least+6+characters' } });
+      }
+      const user = await env.AUTH_DB.prepare('SELECT * FROM users WHERE username = ? AND password = ?').bind(sess.username, await hash(currentPw)).first();
+      if (!user) {
+        return new Response(null, { status: 302, headers: { 'Location': '/auth/account?err=1&msg=Current+password+is+incorrect' } });
+      }
+      await env.AUTH_DB.prepare('UPDATE users SET password = ? WHERE username = ?').bind(await hash(newPw), sess.username).run();
+      return new Response(null, { status: 302, headers: { 'Location': '/auth/account?msg=Password+updated+successfully' } });
+    }
+
+    // GET /login — render login page
+    if (path === '/login' || path === '/') {
+      const redirect = url.searchParams.get('redirect') || '/';
+      const registered = url.searchParams.get('registered') === '1';
+      const msg = registered ? 'Account created! You can now log in.' : '';
+      return new Response(renderLogin(redirect, msg, false, registered), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
 };
 
 async function hash(str) {
-    const buf = new TextEncoder().encode(str);
-    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+  const buf = new TextEncoder().encode(str);
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf)))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 const CSS = `
@@ -198,8 +195,8 @@ input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px var(--ring)}
 `;
 
 function renderLogin(redirect = '/', statusMsg = '', showReg = false, isSuccess = false) {
-    const enc = encodeURIComponent(redirect);
-    return `<!DOCTYPE html>
+  const enc = encodeURIComponent(redirect);
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -260,7 +257,7 @@ function renderLogin(redirect = '/', statusMsg = '', showReg = false, isSuccess 
 }
 
 function renderAccount(username, msg = '', isErr = false) {
-    return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
